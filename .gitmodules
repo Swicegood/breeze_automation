@@ -1,0 +1,3 @@
+[submodule "pyBreezeChMS"]
+	path = pyBreezeChMS
+	url = https://github.com/alexortizrosado/pyBreezeChMS.git

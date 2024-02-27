@@ -3,3 +3,4 @@
 __pycache__/*
 __pycache__
 pyBreezeChMS/__pycache__
+.env

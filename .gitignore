@@ -1,0 +1,5 @@
+*.csv
+*.CSV
+__pycache__/*
+__pycache__
+pyBreezeChMS/__pycache__

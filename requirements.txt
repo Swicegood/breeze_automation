@@ -1,3 +1,6 @@
 requests>=1.1.0
 coveralls
 xlsx2csv
+google-auth==2.3.0
+google-auth-oauthlib==0.4.6
+google-api-python-client==2.25.0

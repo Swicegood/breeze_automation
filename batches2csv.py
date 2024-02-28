@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/mnt/g/My Drive/Computer/python/breeze/pyBreezeChMS')
+sys.path.append('./pyBreezeChMS')
 #sys.path.append('/mnt/y/My Drive/Computer/python/breeze/pyBreezeChMS')
 from pyBreezeChMS.breezeapi import get_batches, contributions_with_addresses
 import argparse

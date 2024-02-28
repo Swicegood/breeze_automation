@@ -99,8 +99,7 @@ if __name__ == "__main__":
             pass
         # send the file
         message = MIMEMultipart()
-        #message['to'] = get_email_address(email)
-        message['to'] = "jguru108@gmail.com"
+        message['to'] = get_email_address(email)
         message['subject'] = filename
         message.attach(MIMEText("Here is your file"))
         with open(filename, "rb") as attachment:

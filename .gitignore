@@ -5,3 +5,4 @@ __pycache__
 pyBreezeChMS/__pycache__
 .env
 token.json
+creentials.json

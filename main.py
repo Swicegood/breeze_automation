@@ -81,6 +81,54 @@ def get_args(email):
 def get_email_address(email):
     return next(header['value'] for header in email['payload']['headers'] if header['name'] == 'From')
 
+def process_attachments(email):
+    """Download attachments starting with 'PP' or 'SQ' and process them using
+    papal2breeze or square2breeze. Then email the resulting CSV to jguru108@gmail.com.
+    """
+    service = get_gmail_service()
+    payload = email['payload']
+    parts = payload.get('parts', [])
+    for part in parts:
+        filename = part.get('filename', '')
+        if filename.startswith('PP') or filename.startswith('SQ'):
+            # Retrieve attachment
+            att_id = part['body']['attachmentId']
+            attachment_data = service.users().messages().attachments().get(
+                userId='me', messageId=email['id'], id=att_id
+            ).execute()
+            file_data = base64.urlsafe_b64decode(attachment_data['data'])
+            
+            # Save attachment locally
+            local_filepath = os.path.join('.', filename)
+            with open(local_filepath, 'wb') as f:
+                f.write(file_data)
+
+            # Determine which script to run
+            script_name = 'papal2breeze.py' if filename.startswith('PP') else 'square2breeze.py'
+
+            # Run the script to generate a CSV
+            subprocess.run(["python", script_name, local_filepath], check=True)
+
+            # Assume script outputs a CSV with a predictable name, e.g. local_filepath + ".csv"
+            csv_filepath = local_filepath + ".csv"
+            if os.path.exists(csv_filepath):
+                # Build and send an email with the CSV file attached
+                result_message = MIMEMultipart()
+                result_message['to'] = "jguru108@gmail.com"
+                result_message['subject'] = f"Processed file: {filename}"
+                result_message.attach(MIMEText(f"Here is the CSV generated from {filename}."))
+
+                with open(csv_filepath, "rb") as csvfile:
+                    part_csv = MIMEBase("application", "octet-stream")
+                    part_csv.set_payload(csvfile.read())
+                encoders.encode_base64(part_csv)
+                part_csv.add_header("Content-Disposition", f"attachment; filename={os.path.basename(csv_filepath)}")
+                result_message.attach(part_csv)
+
+                raw_msg = base64.urlsafe_b64encode(result_message.as_bytes()).decode()
+                service.users().messages().send(userId="me", body={"raw": raw_msg}).execute()
+                print(f"Sent CSV {csv_filepath} to jguru108@gmail.com")
+
 if __name__ == "__main__":
     email_matches = grab_emails("Need batch")
     unread = unread_emails(email_matches)
@@ -113,12 +161,14 @@ if __name__ == "__main__":
         message.attach(part)
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
         service = get_gmail_service()
-        service.users().messages().send(userId="me", body
-            ={"raw": raw}).execute()
+        service.users().messages().send(userId="me", body={"raw": raw}).execute()
         print(f"Sent {filename}")
+
+        # Process attachments (new functionality):
+        process_attachments(email)
+
         mark_as_read(email)
         archive_email(email)
-
     print("Done")
 
 

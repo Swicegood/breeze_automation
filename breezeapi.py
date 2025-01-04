@@ -58,17 +58,16 @@ def add_people_to_breeze(peopledata):
 
         people = breeze_api.get_people()
 
-        for person in people:         
+        for person in people: 
             if line["firstname"].upper() == person["first_name"].upper() and line["lastname"].upper() == person["last_name"].upper():
                 time.sleep(3.5) 
                 match = True
                 updateperson = breeze_api.update_person(person["id"], json.dumps(fields))
-                print(updateperson)
+                print("updateperson: ", updateperson["first_name"], updateperson["last_name"])
         if not match and (line["firstname"] != "" or line["lastname"] != ""):
-            time.sleep(3.5)          
+            time.sleep(3.5)   
             addperson = breeze_api.add_person(line["firstname"], line["lastname"], json.dumps(fields))
-            print(addperson)
-            print(json.dumps(fields))
+            print("Added person: ", addperson["first_name"], addperson["last_name"])
 
 def get_batches(batchlist):
     batches = ""
@@ -99,7 +98,6 @@ def contributions_with_addresses(batch_data):
         contrib["zip"] = donor["zip"]
         # print output in a very pretty way
         print(str(index+1)+".   ")
-        print(contrib)
         contribution_data.append(contrib)
     return contribution_data
 

@@ -4,7 +4,7 @@ import sys
 import csv
 from os import path
 from decimal import Decimal
-sys.path.append('/mnt/y/My Drive/Computer/python/breeze/pyBreezeChMS')
+sys.path.append('/app/pyBreezeChMS')
 from pyBreezeChMS.breezeapi import add_people_to_breeze
 import copy
 

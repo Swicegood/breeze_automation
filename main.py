@@ -12,8 +12,20 @@ from email.mime.base import MIMEBase
 from batches2csv import get_batches, contributions_with_addresses, makefilename, save, parse_range
 import os
 from email import encoders
+import logging
+import datetime
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(f'email_processor_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
+        logging.StreamHandler()
+    ]
+)
 
 def get_gmail_service():
     creds = None
@@ -62,7 +74,7 @@ def grab_emails(search_str):
 def unread_emails(emails):
     unread = []
     for email in emails:
-        if 'UNREAD' in email['labelIds']:
+        if 'labelIds' in email and 'UNREAD' in email['labelIds']:
             unread.append(email)
     return unread
 
@@ -88,88 +100,198 @@ def process_attachments(email):
     service = get_gmail_service()
     payload = email['payload']
     parts = payload.get('parts', [])
+    logging.info(f"Checking {len(parts)} parts for PP/SQ attachments")
+    
     for part in parts:
         filename = part.get('filename', '')
         if filename.startswith('PP') or filename.startswith('SQ'):
-            # Retrieve attachment
-            att_id = part['body']['attachmentId']
-            attachment_data = service.users().messages().attachments().get(
-                userId='me', messageId=email['id'], id=att_id
-            ).execute()
-            file_data = base64.urlsafe_b64decode(attachment_data['data'])
-            
-            # Save attachment locally
-            local_filepath = os.path.join('.', filename)
-            with open(local_filepath, 'wb') as f:
-                f.write(file_data)
+            logging.info(f"Processing attachment: {filename}")
+            try:
+                # Retrieve attachment
+                att_id = part['body']['attachmentId']
+                logging.info(f"Downloading attachment ID: {att_id}")
+                attachment_data = service.users().messages().attachments().get(
+                    userId='me', messageId=email['id'], id=att_id
+                ).execute()
+                file_data = base64.urlsafe_b64decode(attachment_data['data'])
+                
+                # Save attachment locally
+                local_filepath = os.path.join('.', filename)
+                logging.info(f"Saving attachment to: {local_filepath}")
+                with open(local_filepath, 'wb') as f:
+                    f.write(file_data)
 
-            # Determine which script to run
-            script_name = 'papal2breeze.py' if filename.startswith('PP') else 'square2breeze.py'
+                # Determine which script to run
+                script_name = 'papal2breeze.py' if filename.startswith('PP') else 'square2breeze.py'
+                logging.info(f"Running {script_name} on {local_filepath}")
 
-            # Run the script to generate a CSV
-            subprocess.run(["python", script_name, local_filepath], check=True)
+                # Add before running subprocess:
+                if not os.path.exists(script_name):
+                    logging.error(f"Required script {script_name} not found in {os.getcwd()}")
+                    continue
 
-            # Assume script outputs a CSV with a predictable name, e.g. local_filepath + ".csv"
-            csv_filepath = local_filepath + ".csv"
-            if os.path.exists(csv_filepath):
-                # Build and send an email with the CSV file attached
-                result_message = MIMEMultipart()
-                result_message['to'] = "jguru108@gmail.com"
-                result_message['subject'] = f"Processed file: {filename}"
-                result_message.attach(MIMEText(f"Here is the CSV generated from {filename}."))
+                # Run the script to generate a CSV
+                try:
+                    result = subprocess.run(
+                        ["python", script_name, local_filepath],
+                        check=False,  # Changed from True to False to handle errors ourselves
+                        capture_output=True,
+                        text=True
+                    )
+                    
+                    if result.stdout:
+                        logging.info(f"Script output: {result.stdout}")
+                    
+                    if result.stderr:
+                        logging.error(f"Script error output: {result.stderr}")
+                        
+                    if result.returncode != 0:
+                        raise Exception(f"Script failed with return code {result.returncode}: {result.stderr}")
+                        
+                except FileNotFoundError:
+                    logging.error(f"Script {script_name} not found in current directory")
+                    continue
 
-                with open(csv_filepath, "rb") as csvfile:
-                    part_csv = MIMEBase("application", "octet-stream")
-                    part_csv.set_payload(csvfile.read())
-                encoders.encode_base64(part_csv)
-                part_csv.add_header("Content-Disposition", f"attachment; filename={os.path.basename(csv_filepath)}")
-                result_message.attach(part_csv)
+                # Handle the CSV
+                csv_filepath = '.'.join(local_filepath.split(".")[:-1])+"_giving_ready_for_breeze.csv" 
+                if os.path.exists(csv_filepath):
+                    logging.info(f"Found generated CSV: {csv_filepath}")
+                    
+                    # Build and send an email with the CSV file
+                    logging.info(f"Preparing to email CSV to jguru108@gmail.com")
+                    result_message = MIMEMultipart()
+                    result_message['to'] = "jguru108@gmail.com"
+                    result_message['subject'] = f"Processed file: {filename}"
+                    result_message.attach(MIMEText(f"Here is the CSV generated from {filename}."))
 
-                raw_msg = base64.urlsafe_b64encode(result_message.as_bytes()).decode()
-                service.users().messages().send(userId="me", body={"raw": raw_msg}).execute()
-                print(f"Sent CSV {csv_filepath} to jguru108@gmail.com")
+                    with open(csv_filepath, "rb") as csvfile:
+                        part_csv = MIMEBase("application", "octet-stream")
+                        part_csv.set_payload(csvfile.read())
+                    encoders.encode_base64(part_csv)
+                    part_csv.add_header("Content-Disposition", 
+                                      f"attachment; filename={os.path.basename(csv_filepath).replace('PP', 'Paypal').replace('SQ', 'Square')}")
+                    result_message.attach(part_csv)
+
+                    raw_msg = base64.urlsafe_b64encode(result_message.as_bytes()).decode()
+                    service.users().messages().send(userId="me", 
+                                                  body={"raw": raw_msg}).execute()
+                    logging.info(f"Successfully sent CSV {csv_filepath} to jguru108@gmail.com")
+                else:
+                    logging.error(f"Expected CSV file not found: {csv_filepath}")
+                    
+            except Exception as e:
+                logging.error(f"Error processing attachment {filename}: {str(e)}", 
+                            exc_info=True)
+                continue
+
+def grab_emails_with_attachment(prefixes):
+    """Return all emails that have attachments whose filenames match one
+    of the given prefixes (e.g. PP... or SQ...).
+    """
+    service = get_gmail_service()
+    # Build a query for attachments. Example: has:attachment (filename:PP* OR filename:SQ*)
+    query_parts = []
+    for p in prefixes:
+        query_parts.append(f"filename:{p}*")
+    query_str = "has:attachment (" + " OR ".join(query_parts) + ")"
+
+    results = service.users().messages().list(
+        userId='me', q=query_str, maxResults=10
+    ).execute()
+    messages = results.get('messages', [])
+    emailmatches = []
+
+    if messages:
+        for message in messages:
+            detailed_msg = service.users().messages().get(userId='me', id=message['id']).execute()
+            detailed_msg['confidence'] = 7
+            emailmatches.append(detailed_msg)
+
+    return emailmatches
 
 if __name__ == "__main__":
+    logging.info("Starting email processing job")
+    
+    logging.info("Searching for 'Need batch' emails")
     email_matches = grab_emails("Need batch")
+    logging.info(f"Found {len(email_matches)} 'Need batch' emails")
+    
+    logging.info("Searching for emails with PP/SQ attachments")
+    attachment_matches = grab_emails_with_attachment(["PP", "SQ"])
+    logging.info(f"Found {len(attachment_matches)} emails with PP/SQ attachments")
+    
+    email_matches += attachment_matches
+    
     unread = unread_emails(email_matches)
+    logging.info(f"Found {len(unread)} unread emails to process")
+    
     if not unread:
-        print("No unread Need batch emails")
-        exit(0)
-    for email in unread:
-        arg_str = get_args(email)
-        args = parse_range(arg_str)
-        batch_data = get_batches(args)
-        contributions_for_letters = contributions_with_addresses(batch_data)
-        filename = makefilename(args)
-        save(contributions_for_letters, filename)
-        # wait for the file to be created
-        while not os.path.exists(filename):
-            pass
-        # send the file
-        message = MIMEMultipart()
-        message['to'] = get_email_address(email)
-        message['subject'] = filename
-        message.attach(MIMEText("Here is your file"))
-        with open(filename, "rb") as attachment:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(attachment.read())
-        encoders.encode_base64(part)
-        part.add_header(
-            "Content-Disposition",
-            f"attachment; filename= {filename}",
-        )
-        message.attach(part)
-        raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
-        service = get_gmail_service()
-        service.users().messages().send(userId="me", body={"raw": raw}).execute()
-        print(f"Sent {filename}")
-
-        # Process attachments (new functionality):
-        process_attachments(email)
-
-        mark_as_read(email)
-        archive_email(email)
-    print("Done")
+        logging.info("No unread emails to process")
+    
+    for i, email in enumerate(unread, 1):
+        try:
+            subject = next((header['value'] for header in email['payload']['headers'] if header['name'] == 'Subject'), 'No subject')
+            from_addr = get_email_address(email)
+            logging.info(f"Processing email {i}/{len(unread)}: From={from_addr}, Subject={subject}")
+            
+            # Process "Need batch" type emails
+            if "Need batch" in subject:
+                logging.info("Processing as 'Need batch' email")
+                arg_str = get_args(email)
+                logging.info(f"Parsed arguments: {arg_str}")
+                
+                args = parse_range(arg_str)
+                logging.info(f"Getting batch data for range: {args}")
+                batch_data = get_batches(args)
+                
+                logging.info("Processing contributions with addresses")
+                contributions_for_letters = contributions_with_addresses(batch_data)
+                
+                filename = makefilename(args)
+                logging.info(f"Saving to file: {filename}")
+                save(contributions_for_letters, filename)
+                
+                # wait for the file to be created
+                while not os.path.exists(filename):
+                    logging.debug("Waiting for file to be created...")
+                    pass
+                
+                logging.info(f"Sending email with attachment {filename} to {from_addr}")
+                message = MIMEMultipart()
+                message['to'] = from_addr
+                message['subject'] = filename
+                message.attach(MIMEText("Here is your file"))
+                with open(filename, "rb") as attachment:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(attachment.read())
+                encoders.encode_base64(part)
+                part.add_header(
+                    "Content-Disposition",
+                    f"attachment; filename= {filename}",
+                )
+                message.attach(part)
+                raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+                service = get_gmail_service()
+                service.users().messages().send(userId="me", body={"raw": raw}).execute()
+                logging.info(f"Successfully sent {filename}")
+            
+            # Process attachments for all emails
+            logging.info("Checking for PP/SQ attachments")
+            process_attachments(email)
+            
+        except Exception as e:
+            logging.error(f"Error processing email: {str(e)}", exc_info=True)
+            continue
+        
+        if 'e' not in locals():     # Only mark as read and archive if no errors occurred
+            try:
+                logging.info(f"Marking email {email['id']} as read and archiving")
+                mark_as_read(email)
+                archive_email(email)
+            except Exception as ee:
+                logging.error(f"Error marking email as read or archiving: {str(ee)}", exc_info=True)
+    
+    logging.info("Email processing job completed")
 
 
 

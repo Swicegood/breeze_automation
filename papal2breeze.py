@@ -12,7 +12,7 @@ from square2breeze import save_giving
 
 def parse_paypal(filename):
     parsed_data = []
-    with open(filename, 'r', encoding="utf-8") as data:
+    with open(filename, 'r', encoding="cp1252", errors="replace") as data:
         
         for line in csv.DictReader(data, delimiter=","):
             line["date"] = line.pop("Date")

@@ -8,6 +8,13 @@ from datetime import date
 
 if __name__ == "__main__":
     people = breeze_api.get_people()
+
+    giving = breeze_api.list_contributions(
+        start_date=date(2000, 1, 1),
+        end_date=date(2099, 12, 31)
+    )
+
+    print(giving)
     #save people to file
     today = date.today().strftime("%Y-%m-%d")
     
@@ -17,12 +24,16 @@ if __name__ == "__main__":
 
     # Join path with filename
     filename = os.path.join(backup_dir, f"people_{today}.json")
+    filename_giving = os.path.join(backup_dir, f"giving_{today}.json")
 
     with open(filename, 'w') as f:
         f.write(json.dumps(people))
+
+    with open(filename_giving, 'w') as f:
+        f.write(json.dumps(giving))
         
-    #Keep only 5 backups
+    #Keep only 5 backups of each type, giving and people for a total of 10 backups
     backups = os.listdir(backup_dir)
     backups.sort()
-    if len(backups) > 5:
-        os.remove(os.path.join(backup_dir, backups[0]))
+    for backup in backups[:-10]:
+        os.remove(os.path.join(backup_dir, backup)) 

@@ -3,13 +3,14 @@ import copy
 import json
 import time
 import os
+# Import the rate limiter
+import breeze_rate_limiter
+
 api_key = os.environ['API_KEY']
 
 # Create a BreezeApi object and pass in the url and api key
-
-breeze_api = breeze.BreezeApi(
-    breeze_url='https://iskconofnc.breezechms.com',
-    api_key=api_key)
+# Use rate-limited version instead of direct initialization
+breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
 
 
 def add_people_to_breeze(peopledata):
@@ -60,12 +61,10 @@ def add_people_to_breeze(peopledata):
 
         for person in people: 
             if line["firstname"].upper() == person["first_name"].upper() and line["lastname"].upper() == person["last_name"].upper():
-                time.sleep(3.5) 
                 match = True
                 updateperson = breeze_api.update_person(person["id"], json.dumps(fields))
                 print("updateperson: ", updateperson["first_name"], updateperson["last_name"])
-        if not match and (line["firstname"] != "" or line["lastname"] != ""):
-            time.sleep(3.5)   
+        if not match and (line["firstname"] != "" or line["lastname"] != ""):  
             addperson = breeze_api.add_person(line["firstname"], line["lastname"], json.dumps(fields))
             print("Added person: ", addperson["first_name"], addperson["last_name"])
 
@@ -90,7 +89,6 @@ def contributions_with_addresses(batch_data):
         contrib["amount"] = contribution["funds"][0]["amount"]
         contrib["fund"] = contribution["funds"][0]["fund_name"]
         contrib["note"] = contribution["note"]
-        time.sleep(3.5)
         donor = breeze_api.get_person_details(contribution["person_id"])
         contrib["numstreet"] = donor["street_address"]
         contrib["city"] = donor["city"]

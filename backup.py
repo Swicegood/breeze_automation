@@ -14,7 +14,6 @@ if __name__ == "__main__":
         end_date=date(2099, 12, 31)
     )
 
-    print(giving)
     #save people to file
     today = date.today().strftime("%Y-%m-%d")
     
@@ -34,6 +33,15 @@ if __name__ == "__main__":
         
     #Keep only 5 backups of each type, giving and people for a total of 10 backups
     backups = os.listdir(backup_dir)
-    backups.sort()
-    for backup in backups[:-10]:
+    
+    # Process people backups
+    people_backups = [b for b in backups if b.startswith('people_')]
+    people_backups.sort()  # Sort alphabetically and chronologically
+    for backup in people_backups[:-5]:  # Keep only the 5 most recent people backups
+        os.remove(os.path.join(backup_dir, backup))
+    
+    # Process giving backups
+    giving_backups = [b for b in backups if b.startswith('giving_')]
+    giving_backups.sort()  # Sort alphabetically and chronologically 
+    for backup in giving_backups[:-5]:  # Keep only the 5 most recent giving backups
         os.remove(os.path.join(backup_dir, backup)) 

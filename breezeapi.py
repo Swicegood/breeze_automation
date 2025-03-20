@@ -6,10 +6,7 @@ import os
 # Import the rate limiter
 import breeze_rate_limiter
 
-api_key = os.environ['API_KEY']
-
-# Create a BreezeApi object and pass in the url and api key
-# Use rate-limited version instead of direct initialization
+# Use the singleton pattern for the API instance
 breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
 
 

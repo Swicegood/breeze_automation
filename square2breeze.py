@@ -13,6 +13,9 @@ import time
 # Import the rate limiter
 import breeze_rate_limiter
 
+# Get a single rate-limited API instance for the entire script
+breeze_api = None
+
 def parse_square(filename):
     parsed_data = []
     funds = {
@@ -102,10 +105,10 @@ def save_giving(data, csvfilename):
             print(index, ". Firstname ", line["firstname"], " Lastname ", line["lastname"], " Amount ", line["amount"])
 
 def get_person_id(name):
-    """Get person IDs from Breeze by name, with rate limiting"""
-    # Get a rate-limited API instance
-    breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
+    """Get person IDs from Breeze by name"""
+    global breeze_api
     
+    # Use the shared API instance
     people = breeze_api.get_people()
     person_ids = []
     for person in people:
@@ -120,10 +123,10 @@ def get_person_id(name):
 
 
 def get_fund_id(fund):
-    """Get fund ID from Breeze, with rate limiting"""
-    # Get a rate-limited API instance
-    breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
+    """Get fund ID from Breeze"""
+    global breeze_api
     
+    # Use the shared API instance
     funds = breeze_api.list_funds()
     for fund in funds:  
         if fund['name'] == fund:
@@ -140,11 +143,10 @@ def add_giving_to_breeze(contributions):
     Returns:
         List of payment IDs created in Breeze
     """
+    global breeze_api
+    
     import os
     import datetime
-    
-    # Get a rate-limited API instance
-    breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
     
     payment_ids = []
     time_of_this_batch = int(time.time())
@@ -227,6 +229,10 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python3 square2breeze.py square.csv")
     else:
+        # Initialize the API once at the start
+        print("Initializing rate-limited Breeze API...")
+        breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
+        
         print(f"Processing Square data from: {sys.argv[1]}")
         square_data = parse_square(sys.argv[1])
         print(f"Found {len(square_data)} contributions to process")
@@ -245,8 +251,6 @@ if __name__ == "__main__":
             test_data = square_data[:1]
             print(test_data)
             print("Processing a test contribution first:")
-            print("Applying rate limiting to Breeze API...")
-            breeze_rate_limiter.apply_rate_limiting_to_breeze()
             
             # Use existing add_people_to_breeze function with rate limiting already applied
             #add_people_to_breeze(test_data)

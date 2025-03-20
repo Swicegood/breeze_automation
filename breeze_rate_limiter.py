@@ -1,7 +1,17 @@
 #!/usr/bin/python3
 
 import time
+import logging
 from functools import wraps
+
+# Configure logging to write to stdout (which Docker will capture)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    force=True
+)
+logger = logging.getLogger('breeze_rate_limiter')
 
 # Store the last API call timestamp
 last_api_call_time = 0
@@ -27,7 +37,7 @@ def rate_limit_breeze(func):
         # If we haven't waited enough time, sleep for the remaining time
         if time_since_last_call < MIN_DELAY:
             sleep_time = MIN_DELAY - time_since_last_call
-            print(f"Rate limiting: waiting {sleep_time:.2f} seconds before next API call")
+            logger.info(f"Rate limiting: waiting {sleep_time:.2f} seconds before next API call")
             time.sleep(sleep_time)
         
         # Update the last call time and make the API call
@@ -49,7 +59,7 @@ def apply_rate_limiting_to_breeze():
     
     # If rate limiting has already been applied, don't do it again
     if rate_limiting_applied:
-        print("Rate limiting already applied to Breeze API")
+        logger.info("Rate limiting already applied to Breeze API")
         return True
     
     try:
@@ -65,18 +75,18 @@ def apply_rate_limiting_to_breeze():
             if hasattr(breeze.BreezeApi, method_name):
                 original_method = getattr(breeze.BreezeApi, method_name)
                 setattr(breeze.BreezeApi, method_name, rate_limit_breeze(original_method))
-                print(f"Applied rate limiting to BreezeApi.{method_name}")
+                logger.info(f"Applied rate limiting to BreezeApi.{method_name}")
         
         # Mark rate limiting as applied
         rate_limiting_applied = True
-        print("Rate limiting successfully applied to Breeze API")
+        logger.info("Rate limiting successfully applied to Breeze API")
         return True
         
     except ImportError:
-        print("Failed to import Breeze API - rate limiting not applied")
+        logger.error("Failed to import Breeze API - rate limiting not applied")
         return False
     except Exception as e:
-        print(f"Error applying rate limiting: {e}")
+        logger.error(f"Error applying rate limiting: {e}")
         return False
 
 
@@ -100,6 +110,7 @@ def get_rate_limited_breeze_api():
     subdomain = 'https://iskconofnc.breezechms.com'
     
     if not api_key:
+        logger.error("API_KEY environment variable is not set")
         raise ValueError("API_KEY environment variable is not set")
     
     # Apply rate limiting to the Breeze API class (only happens once)
@@ -107,9 +118,10 @@ def get_rate_limited_breeze_api():
     
     # Create and save the global instance
     global_api_instance = breeze.BreezeApi(subdomain, api_key)
+    logger.info(f"Created Breeze API instance for {subdomain}")
     return global_api_instance
 
 
 if __name__ == "__main__":
-    print("This is a utility module for rate limiting Breeze API calls")
-    print("It should be imported and used in your scripts") 
+    logger.info("This is a utility module for rate limiting Breeze API calls")
+    logger.info("It should be imported and used in your scripts") 

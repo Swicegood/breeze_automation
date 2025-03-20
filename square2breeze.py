@@ -4,14 +4,26 @@ import sys
 import csv
 from os import path
 from decimal import Decimal
+# Updated import path for local development
 sys.path.append('/app/pyBreezeChMS')
+sys.path.append('/mnt/y/My Drive/Computer/python/breeze_automation/pyBreezeChMS')
 from pyBreezeChMS.breezeapi import add_people_to_breeze
 import copy
 import json
 import datetime
 import time
+import logging
 # Import the rate limiter
 import breeze_rate_limiter
+
+# Configure logging to write to stdout (which Docker will capture)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    force=True
+)
+logger = logging.getLogger('square2breeze')
 
 # Get a single rate-limited API instance for the entire script
 breeze_api = None
@@ -29,6 +41,8 @@ def parse_square(filename):
             "2 x Donation (Regular)":"General Fund",
             "Custom Amount":"General Fund"      
             }
+    
+    logger.info(f"Opening Square data file: {filename}")
     with open(filename, 'r', encoding="utf8") as data:
         
         for index, line in enumerate(csv.DictReader(data)):
@@ -73,7 +87,7 @@ def parse_square(filename):
             line["city"] = ""
             line["state"] = ""
             line["zip"] = ""
-            print(index, ". " ,"First name: ", line["firstname"], " Last name: ", line["lastname"], " Amount: ", line["amount"])          
+            logger.debug(f"Row {index}: First name: {line['firstname']}, Last name: {line['lastname']}, Amount: {line['amount']}")          
             if len(names) > 1:
                 line["firstname"] = names[0]
                 line["lastname"] = names[1]
@@ -84,6 +98,8 @@ def parse_square(filename):
                 line["lastname"] = id
             if line["amount"] != Decimal(0):  # Only append if amount is not 0
                 parsed_data.append(line)
+    
+    logger.info(f"Parsed {len(parsed_data)} contributions from Square data")
     return parsed_data
 
 def save_giving(data, csvfilename):
@@ -92,6 +108,7 @@ def save_giving(data, csvfilename):
                 "checknumber", "cclastfour", "note","batch"]
     topline = "First Name,Last Name,Date,Fund,Fund Number,Amount,Method,Check Number,CC Last Four,Notes,Batch Number"
     
+    logger.info(f"Saving contributions to CSV: {csvfilename}")
     with open(csvfilename, 'w') as f:
         f.write(topline+'\n')
 
@@ -102,12 +119,15 @@ def save_giving(data, csvfilename):
                     if field not in fieldnames:
                         del line[field]
             writer.writerow(line)
-            print(index, ". Firstname ", line["firstname"], " Lastname ", line["lastname"], " Amount ", line["amount"])
+            logger.debug(f"Row {index}: Firstname: {line['firstname']}, Lastname: {line['lastname']}, Amount: {line['amount']}")
+    
+    logger.info(f"Successfully saved {len(data)} contributions to {csvfilename}")
 
 def get_person_id(name):
     """Get person IDs from Breeze by name"""
     global breeze_api
     
+    logger.debug(f"Looking up person ID for: {name}")
     # Use the shared API instance
     people = breeze_api.get_people()
     person_ids = []
@@ -119,6 +139,11 @@ def get_person_id(name):
             last_name = name_parts[-1]  # Last part is the last name
             if person['first_name'].lower() == first_name and person['last_name'].lower() == last_name:
                 person_ids.append(person['id'])
+                logger.debug(f"Found person ID {person['id']} for {name}")
+    
+    if not person_ids:
+        logger.warning(f"No matching person found for {name}")
+    
     return person_ids
 
 
@@ -126,11 +151,15 @@ def get_fund_id(fund):
     """Get fund ID from Breeze"""
     global breeze_api
     
+    logger.debug(f"Looking up fund ID for: {fund}")
     # Use the shared API instance
     funds = breeze_api.list_funds()
     for fund in funds:  
         if fund['name'] == fund:
+            logger.debug(f"Found fund ID {fund['id']} for {fund['name']}")
             return fund['id']
+    
+    logger.warning(f"No matching fund found for {fund}")
     return None
 
 
@@ -148,10 +177,14 @@ def add_giving_to_breeze(contributions):
     import os
     import datetime
     
+    logger.info(f"Adding {len(contributions)} contributions to Breeze")
     payment_ids = []
     time_of_this_batch = int(time.time())
+    processed_count = 0
+    skipped_count = 0
+    error_count = 0
 
-    for contribution in contributions:
+    for idx, contribution in enumerate(contributions):
         try:
             # Format the date from MM/DD/YYYY to DD-MM-YYYY as required by Breeze API
             date_parts = contribution['date'].split('/')
@@ -178,10 +211,14 @@ def add_giving_to_breeze(contributions):
             if name.strip() == "":
                 name = contribution['name']
             
+            # Progress log
+            logger.info(f"Processing contribution [{idx+1}/{len(contributions)}]: {name} (${contribution['amount']})")
+            
             # Get person IDs (with rate limiting)
             person_ids = get_person_id(name)
             if not person_ids:
-                print(f"No matching person found for {name} - skipping contribution")
+                logger.warning(f"No matching person found for {name} - skipping contribution")
+                skipped_count += 1
                 continue
                 
             # Check to see if this contribution is already in Breeze
@@ -195,8 +232,9 @@ def add_giving_to_breeze(contributions):
             
             for contribution_listed in existing_contributions:
                 if contribution_listed["person_id"] in person_ids or contribution["firstname"] in contribution_listed["first_name"] and contribution["lastname"] in contribution_listed["last_name"]:
-                    print(f"Contribution from {name} for ${contribution['amount']} to {contribution['fund']} on {breeze_date} already exists in Breeze")
+                    logger.info(f"Contribution from {name} for ${contribution['amount']} to {contribution['fund']} on {breeze_date} already exists in Breeze")
                     existing_contribution = True
+                    skipped_count += 1
                     break
                     
             if existing_contribution:
@@ -217,44 +255,53 @@ def add_giving_to_breeze(contributions):
             )
             
             payment_ids.append(payment_id)
-            print(f"Added contribution from {name} for ${contribution['amount']} to {contribution['fund']} - Payment ID: {payment_id}")
+            processed_count += 1
+            logger.info(f"Added contribution from {name} for ${contribution['amount']} to {contribution['fund']} - Payment ID: {payment_id}")
             
         except Exception as e:
-            print(f"Error adding contribution for {contribution.get('name', 'Unknown')}: {str(e)}")
+            error_count += 1
+            logger.error(f"Error adding contribution for {contribution.get('name', 'Unknown')}: {str(e)}", exc_info=True)
     
+    logger.info(f"Contribution processing complete. Added: {processed_count}, Skipped: {skipped_count}, Errors: {error_count}")
     return payment_ids
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
+        logger.error("Missing input file. Usage: python3 square2breeze.py square.csv")
         print("Usage: python3 square2breeze.py square.csv")
+        sys.exit(1)
     else:
         # Initialize the API once at the start
-        print("Initializing rate-limited Breeze API...")
+        logger.info("Initializing rate-limited Breeze API...")
         breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()
         
-        print(f"Processing Square data from: {sys.argv[1]}")
+        logger.info(f"Processing Square data from: {sys.argv[1]}")
         square_data = parse_square(sys.argv[1])
-        print(f"Found {len(square_data)} contributions to process")
+        logger.info(f"Found {len(square_data)} contributions to process")
 
         # Prepare output filename
         dir = path.dirname(sys.argv[1])
         file = path.basename(sys.argv[1])
         givingoutfile = '.'.join(file.split(".")[:-1])+"_giving_ready_for_breeze.csv"  
         
-        print(f"Saving contributions to CSV: {givingoutfile}")
-
         save_giving(square_data, givingoutfile)
 
         # Process a test contribution first
         if len(square_data) > 0:
             test_data = square_data[:1]
-            print(test_data)
-            print("Processing a test contribution first:")
+            logger.info(f"Test data: {test_data}")
+            logger.info("Processing a test contribution first:")
             
-            # Use existing add_people_to_breeze function with rate limiting already applied
+            # Uncomment to test with a single contribution first
             #add_people_to_breeze(test_data)
             #add_giving_to_breeze(test_data)
-
+            
+            # Process all contributions
+            logger.info(f"Processing all {len(square_data)} contributions")
             add_people_to_breeze(square_data)
             add_giving_to_breeze(square_data)
+            
+            logger.info("All processing complete!")
+        else:
+            logger.warning("No contributions found to process")

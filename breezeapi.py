@@ -7,14 +7,41 @@ import logging
 # Import the rate limiter
 import breeze_rate_limiter
 
+# With this improved configuration
+import logging
+import sys
+
 # Configure logging to write to stdout (which Docker will capture)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout,  # Explicitly use stdout
     force=True
 )
+# Create our module-specific logger
 logger = logging.getLogger('breezeapi')
+
+# With this configuration that sets specific log levels
+logging.basicConfig(
+    level=logging.INFO,  # Set default level to INFO
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout,  # Explicitly use stdout
+    force=True
+)
+# Set specific logger levels
+logging.getLogger('breeze').setLevel(logging.WARNING)  # Set Breeze API library to WARNING level
+logging.getLogger('urllib3').setLevel(logging.WARNING)  # Set HTTP client to WARNING level
+logging.getLogger('requests').setLevel(logging.WARNING)  # Set requests to WARNING level
+
+# Create our module-specific logger
+logger = logging.getLogger('breezeapi')
+logger.setLevel(logging.INFO)  # Allow INFO messages from our module
+
+# Also ensure we're flushing stdout frequently
+import functools
+print = functools.partial(print, flush=True)  # Make print flush immediately
 
 # Use the singleton pattern for the API instance
 breeze_api = breeze_rate_limiter.get_rate_limited_breeze_api()

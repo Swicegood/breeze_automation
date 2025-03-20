@@ -16,14 +16,27 @@ import logging
 # Import the rate limiter
 import breeze_rate_limiter
 
-# Configure logging to write to stdout (which Docker will capture)
+# With this configuration that sets specific log levels
+import sys
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s [%(levelname)s] %(message)s',
+    level=logging.INFO,  # Set default level to INFO instead of DEBUG
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout,  # Explicitly use stdout
     force=True
 )
+# Set specific logger levels
+logging.getLogger('breeze').setLevel(logging.WARNING)  # Set Breeze API library to WARNING level
+logging.getLogger('urllib3').setLevel(logging.WARNING)  # Set HTTP client to WARNING level
+logging.getLogger('requests').setLevel(logging.WARNING)  # Set requests to WARNING level
+
+# Create our script-specific logger with more detailed level
 logger = logging.getLogger('square2breeze')
+logger.setLevel(logging.INFO)  # Allow INFO messages from our script
+
+# Also ensure we're flushing stdout frequently
+import functools
+print = functools.partial(print, flush=True)  # Make print flush immediately
 
 # Get a single rate-limited API instance for the entire script
 breeze_api = None
@@ -217,9 +230,21 @@ def add_giving_to_breeze(contributions):
             # Get person IDs (with rate limiting)
             person_ids = get_person_id(name)
             if not person_ids:
-                logger.warning(f"No matching person found for {name} - skipping contribution")
-                skipped_count += 1
-                continue
+                # Instead of skipping, use Anonymous 0123
+                logger.warning(f"No matching person found for {name} - using Anonymous 0123 instead")
+                contribution['firstname'] = "Anonymous"
+                contribution['lastname'] = "0123"
+                name = "Anonymous 0123"
+                
+                # Try to get the Anonymous person ID
+                person_ids = get_person_id(name)
+                
+                # If Anonymous person doesn't exist yet, we'll need to create it
+                # For now, we'll skip this contribution as we can't add without a person ID
+                if not person_ids:
+                    logger.warning(f"Anonymous 0123 person doesn't exist in Breeze yet - skipping contribution")
+                    skipped_count += 1
+                    continue
                 
             # Check to see if this contribution is already in Breeze
             existing_contribution = False

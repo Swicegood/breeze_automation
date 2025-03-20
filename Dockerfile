@@ -7,4 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+COPY breezeapi.py /app/pyBreezeChMS/breezeapi.py
+
 CMD ["python", "main.py"]

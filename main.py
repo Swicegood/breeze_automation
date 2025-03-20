@@ -14,18 +14,19 @@ import os
 from email import encoders
 import logging
 import datetime
+import sys
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(f'email_processor_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout, # Ensure logs go to stdout for Docker capture
+    force=True
 )
+logger = logging.getLogger('main')
 
 def get_gmail_service():
     creds = None
@@ -132,22 +133,13 @@ def process_attachments(email):
 
                 # Run the script to generate a CSV
                 try:
-                    result = subprocess.run(
-                        ["python", script_name, local_filepath],
-                        check=False,  # Changed from True to False to handle errors ourselves
-                        capture_output=True,
-                        text=True
-                    )
+                    return_code = run_subprocess(["python3", script_name, local_filepath])
                     
-                    if result.stdout:
-                        logging.info(f"Script output: {result.stdout}")
-                    
-                    if result.stderr:
-                        logging.error(f"Script error output: {result.stderr}")
-                        
-                    if result.returncode != 0:
-                        raise Exception(f"Script failed with return code {result.returncode}: {result.stderr}")
-                        
+                    if return_code != 0:
+                        logging.error(f"Script execution failed with return code {return_code}")
+                        # Skip to the next email
+                        continue
+
                 except FileNotFoundError:
                     logging.error(f"Script {script_name} not found in current directory")
                     continue
@@ -208,6 +200,50 @@ def grab_emails_with_attachment(prefixes):
             emailmatches.append(detailed_msg)
 
     return emailmatches
+
+def run_subprocess(cmd, env=None):
+    """Run a subprocess and stream output in real-time to logger"""
+    logger.info(f"Starting subprocess: {' '.join(cmd)}")
+    
+    # Start process with pipe for stdout and stderr
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,  # Line buffered
+        env=env
+    )
+    
+    # Function to handle output from the subprocess
+    def log_output(pipe, log_level):
+        for line in iter(pipe.readline, ''):
+            if line:
+                if log_level == 'info':
+                    logger.info(f"Subprocess: {line.strip()}")
+                else:
+                    logger.error(f"Subprocess error: {line.strip()}")
+    
+    # Import threading to handle concurrent reading of stdout and stderr
+    import threading
+    
+    # Create and start threads to handle output
+    stdout_thread = threading.Thread(target=log_output, args=(process.stdout, 'info'))
+    stderr_thread = threading.Thread(target=log_output, args=(process.stderr, 'error'))
+    stdout_thread.daemon = True
+    stderr_thread.daemon = True
+    stdout_thread.start()
+    stderr_thread.start()
+    
+    # Wait for process to finish
+    return_code = process.wait()
+    
+    # Wait for threads to finish processing output
+    stdout_thread.join()
+    stderr_thread.join()
+    
+    logger.info(f"Subprocess completed with return code: {return_code}")
+    return return_code
 
 if __name__ == "__main__":
     logging.info("Starting email processing job")

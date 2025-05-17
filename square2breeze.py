@@ -232,9 +232,9 @@ def add_giving_to_breeze(contributions):
             if not person_ids:
                 # Instead of skipping, use Anonymous 0123
                 logger.warning(f"No matching person found for {name} - using Anonymous 0123 instead")
-                contribution['firstname'] = "Anonymous"
-                contribution['lastname'] = "0123"
-                name = "Anonymous 0123"
+                contribution['firstname'] = "0123"
+                contribution['lastname'] = "Anonymous"
+                name = "0123 Anonymous"
                 
                 # Try to get the Anonymous person ID
                 person_ids = get_person_id(name)
@@ -255,8 +255,8 @@ def add_giving_to_breeze(contributions):
                 amount_max=str(contribution["amount"]),
             )
             
-            for contribution_listed in existing_contributions:
-                if contribution_listed["person_id"] in person_ids or contribution["firstname"] in contribution_listed["first_name"] and contribution["lastname"] in contribution_listed["last_name"]:
+            for c in existing_contributions:
+                if c["person_id"] in person_ids or contribution["firstname"] in c["first_name"] and contribution["lastname"] in c["last_name"]:
                     logger.info(f"Contribution from {name} for ${contribution['amount']} to {contribution['fund']} on {breeze_date} already exists in Breeze")
                     existing_contribution = True
                     skipped_count += 1

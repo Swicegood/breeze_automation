@@ -207,9 +207,9 @@ def add_giving_to_breeze(contributions):
             if not person_ids:
                 # Instead of skipping, use Anonymous 0123
                 logger.warning(f"No matching person found for {name} - using Anonymous 0123 instead")
-                contribution['firstname'] = "Anonymous"
-                contribution['lastname'] = "0123"
-                name = "Anonymous 0123"
+                contribution['firstname'] = "0123"
+                contribution['lastname'] = "Anonymous"
+                name = "0123 Anonymous"
                 
                 # Try to get the Anonymous person ID
                 person_ids = get_person_id(name)

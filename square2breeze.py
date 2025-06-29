@@ -60,7 +60,12 @@ def parse_square(filename):
         
         for index, line in enumerate(csv.DictReader(data)):
             line["date"] = line.pop("Date")
-            line["amount"] = Decimal(line.pop("Gross Sales").replace("$","").replace(",",""))
+            # Handle refunds in parentheses format like ($5.00)
+            gross_sales = line.pop("Gross Sales").replace("$","").replace(",","")
+            if gross_sales.startswith("(") and gross_sales.endswith(")"):
+                # This is a refund - remove parentheses and make negative
+                gross_sales = "-" + gross_sales[1:-1]
+            line["amount"] = Decimal(gross_sales)
             line["memo"] = ""
             fund = line.pop("Description")
             if fund in funds:
